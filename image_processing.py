@@ -9,16 +9,17 @@ from tqdm import tqdm
 
 
 
-def find_dominant_colors_in_dark_areas(image, num_colors=3, dark_percent=0.1):
+def find_dominant_colors(image, num_colors=3, dark_percent=0.2):
     # Convert the image to grayscale to identify dark areas
     grayscale = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     
     # Flatten the grayscale image and find the intensity threshold for the darkest 10%
     sorted_intensities = np.sort(grayscale, axis=None)
-    threshold_intensity = sorted_intensities[int(len(sorted_intensities) * dark_percent)]
-    
+    lower_threshold = sorted_intensities[int(len(sorted_intensities) * dark_percent)]
+
+    upper_threshold = sorted_intensities[int(len(sorted_intensities) * (1-dark_percent))]
     # Create a mask for the darkest 10% of the image
-    dark_mask = grayscale <= threshold_intensity
+    dark_mask = (grayscale >= lower_threshold) & (grayscale <= upper_threshold)
     
     # Extract pixels from the original image where the dark_mask is True
     dark_pixels = image[dark_mask]
@@ -32,23 +33,35 @@ def find_dominant_colors_in_dark_areas(image, num_colors=3, dark_percent=0.1):
     
     return dominant_colors
 
-def filter_white_matter(data):
+def find_top_bottom(fov, top, fov_coords):
+    if top:
+        range = -1600
+    else:
+        range = 1600
+    differences = np.abs(np.array(fov_coords)[:,0] - (np.array(fov_coords)[fov,0]+range))
+    closest_indices = np.argsort(differences)[:1000]
+    idx = np.argsort(np.abs(np.array(fov_coords)[closest_indices,1] - (np.array(fov_coords)[fov,1])))[1:10]
+    return closest_indices[idx][0]
+
+
+def filter_white_matter(data, pos):
     res = [None]*np.shape(data)[1] 
     fovs = list(range(0, np.shape(data)[1]))
-    num_colors = 5
+    num_colors = 3
 
     for fov in tqdm(fovs):
-        colors = find_dominant_colors_in_dark_areas(data[0, fov,:,:,:], num_colors=num_colors)
+        colors = find_dominant_colors(data[0, fov,:,:,:], num_colors=num_colors)
 
         classifications = []
-        for color in colors[1:5]:
-            if color[2] >= color[0]-color[0]*0.03:  # Blue channel greater than or equal to red channel
-                classifications.append(True)#more blue
-            else:  # Red channel greater than blue channel
+        for color in colors[0:num_colors]:
+            if color[0]-color[2]>=25:  # Red channel much greater
                 classifications.append(False)#more red
+            else:  
+                classifications.append(True)#more blue
         
-        res[fov] = np.any(classifications)
+        res[fov] = np.all(classifications)
 
+    #Add back independent "false" FOVs (horizontally) and remove independent "true" FOVs (horizontally)
     for i in range(1, len(res) - 1):  # Avoid first and last elements
         if not res[i]:  # If the current FOV is white matter (False)
             # Check the neighbors (left and right)
@@ -56,6 +69,17 @@ def filter_white_matter(data):
                 res[i] = True
         else: # Current FOV is grey matter (True)
             if not(res[i - 1]) and not(res[i + 1]):  # If both neighbors are False (white matter)
+                res[i] = False
+    
+    #remove incorrect 'falses' by checking FOV above and below
+    for i in range(1, len(res) - 1):  # Avoid first and last elements
+        if not res[i]:  # If the current FOV is white matter (False)
+            # Check the neighbors (top and bottom)
+            top = find_top_bottom(i, True, pos)
+            bottom = find_top_bottom(i, False, pos)
+            if res[top] and res[bottom]:  # If both neighbors are True (grey matter)
+                res[i] = True
+            if not(res[top]) and not(res[bottom]):  # If both neighbors are False (white matter)
                 res[i] = False
 
     return res

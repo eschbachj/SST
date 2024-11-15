@@ -22,15 +22,15 @@ def load_czi(file, result_file_path):
     data = reader.data  # returns all image data from the file
     dims = reader.dims  # reads the dimensions found in metadata
     pos = reader.get_mosaic_tile_positions() # top left location of each FOV
+
     coordinates_dict = {index: coord for index, coord in enumerate(pos)}
 
 
     pd.DataFrame(coordinates_dict).to_csv(result_file_path+'coordinates_dict.csv', index=False)
     del coordinates_dict
-    del pos
     gc.collect()
 
-    return data, dims
+    return data, dims, pos
 
 def save_tiles_as_tiff(czi, dims, file):
     print("saving CZI image tiles as tiffs")
@@ -47,7 +47,7 @@ def save_tiles_as_tiff(czi, dims, file):
 #******************************************** Main processing Function: *****************************************************#
 
 def load_save_czi(image, path_to_files, result_file_path, cellpose_model, save, count):
-    data, dims = load_czi(image, result_file_path) #data has the array for the entire image
+    data, dims, pos = load_czi(image, result_file_path) #data has the array for the entire image
     fov = dims['M'][0]
 
     print(image.replace(path_to_files,'')+" has "+str(fov)+" FOVs")
@@ -55,8 +55,10 @@ def load_save_czi(image, path_to_files, result_file_path, cellpose_model, save, 
         save_tiles_as_tiff(data, dims, image)
 
     print("Finding white matter...")
-    res = filter_white_matter(data)
-    print(str(np.sum(res)) + " white matter FOVs will be skipped")
+    res = filter_white_matter(data, pos)
+    print(str(np.sum(res)) + " grey matter FOVs will be run through")
+
+
     
     blur = []
     SST_count = [0,0]
@@ -105,11 +107,13 @@ def load_save_czi(image, path_to_files, result_file_path, cellpose_model, save, 
                         print("Saving results for FOV "+str(m)+"...")
                         plot_results(data[0,m,:,:,:], sst, cells, seg_flat, filtered_sst[cnt], SST_cells[cnt], cnt, image.replace(path_to_files,''), m)
                 fov_dict[m].append(len(cell_sizes))
-            else:
+            else: #blurry
                 blur.append(m)
                 fov_dict[m] = [0,0,0]
+            fov_dict[m].append(True)
         else:
-            fov_dict[m] = [0,0,0]
+            fov_dict[m] = [0,0,0, False]
+
 
     #Check how many FOVs were blurry
     prc_blur = len(blur)/fov*100

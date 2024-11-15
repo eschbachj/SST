@@ -26,6 +26,9 @@ def main(cellpose_path, save_count, save_bool):
 
         if not os.path.exists('./Results/'):
             os.makedirs('./Results/')
+        
+        if not os.path.exists(result_file_path):
+            os.makedirs(result_file_path)
 
         #The call to start processing of im
         blur, cells, SST_cells, fov_dict = load_save_czi(im, path_to_files+"/czi_files/", result_file_path, cellpose_path, save_bool, save_count) #returns results of processing
